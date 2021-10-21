@@ -1,0 +1,189 @@
+<h2>Game Over? Analyzing ESPN's "Win Probability" at 99% and Beyond<h2>
+
+ <img src="/assets/img/Superbowl_51_winProbability.png" alt="Oops!">
+ 
+<h3>I. Introduction</h3>
+It's a <a href="https://youtu.be/noLK78Hgq0A?t=4626">play</a> that will live in infamy.<br/><br/>
+
+Down 28-3 with 6:12 remaining in the 3rd quarter of Super Bowl 51, New England Patriots coach Bill Belichick called a desperation trick play on third down. Tom Brady lateraled the ball to wide receiver (and former college quarterback) Julian Edelman, who attempted a 20 yard downfield pass to Dion Lewis. The pass fell, and the odds of the Atlanta Falcons winning the game - according to ESPN's win probability tracker - rose to a staggering 99.7%.  
+
+Unbeknownst to Falcons fans, that was the closest they'd get to victory that day.  
+
+New England proceeded to mount the greatest comeback in Super Bowl history (and one of the <a href="https://slate.com/culture/2017/02/did-the-falcons-really-have-a-99-percent-chance-to-win-the-super-bowl.html"> 4 greatest comebacks in any game in NFL history</a>), ultimately winning 34-28 in overtime.  
+
+And since the question "Who's the greatest quarterback of all time" has been definitively answered, we can ask another question - How much should we trust ESPN's win probability figures - especially at extreme values of 99% or more?  
+
+<h3>II. Data and Data Wrangling</h3>
+To answer this question, we need to collect the in-game win probabilities and compare them to the final outcome of each game. Fortunately, if you look deep enough in the javascript of ESPN's game summary page for any NFL game from 2016 and beyond you'll find a variable called "espn.gamepackage.probability.data". This variable maps to a JSON string that contains key data for every play. An extract of a single play's data appears below
+
+ <br/><br/>
+ 
+<code>espn.gamepackage.probability.data =  <br/>
+[{"play":{"period":{"number":1},  <br/>
+<b>"homeScore":0,  <br/>
+ "awayScore":0,  <br/></b>
+"start":{"distance":0,"yardLine":35,"team":{"id":"1"},"down":0,"yardsToEndzone":65}, <br/>
+"text":"M.Bosher kicks 65 yards from ATL 35 to end zone, Touchback.",<br/>
+"clock":{"displayValue":"15:00"},  <br/>
+"type":{"id":"53","text":"Kickoff","abbreviation":"K"}},  <br/>
+<b>"homeWinPercentage":0.438,  <br/>
+"playId":"40092775239",  </b><br/>
+"tiePercentage":0,  <br/>
+ "secondsLeft":0},  <br/>
+...
+</code>
+ 
+ <br/><br/>
+
+<div style="2px solid black">
+<details>
+<summary>Deep Dive: How do I get that data into Python?</summary>  
+ Knowing the data above is available in the game summary page's javascript, we can get raw text that looks like JSON-formatted data with everything we need. If we import the javascript text and convert the data above to a JSON object, we can populate a Pandas DataFrame in a few quick steps, leveraging the Pandas <code><a href="https://pandas.pydata.org/pandas-docs/version/1.0.1/reference/api/pandas.json_normalize.html">Pandas.json_normalize</a></code> function.  
+ Here's a toy example of the process:  <br/>
+ 
+<code>
+import json  <br/>
+import pandas  <br/>
+my_json_looking_text = '{"name":"John", "age":30, "car":null}'  <br/>
+my_json = json.loads(my_json_looking_text)  <br/>
+df = pd.json_normalize(my_json)  <br/>
+</code>
+</details>
+ </div>
+ 
+ 
+ <br/>
+So there we have it! A unique play id, the home team win percentage at the moment of the play, and the home and away team scores. That's the raw data we'll need to evaluate how well the win probability forecasts hold up when one team has a 99% or higher win probability. We'll throw out the other interesting bits of data like play types, period, down and distance, etc. They may be useful in another analysis, but won't be needed for our question today. And since we're collecting this for 1,343 NFL games, we'll save a lot of data and memory by only focusing on the most critical data columns.
+
+<h4>Data Cleanup and Processing</h4>
+We have the raw data we need (gameId, playId, homeWinPercentage, play.homeScore, and play.AwayScore). But We still need to tease out some other calculated metrics, and remove some of the records. Specifically, we need to:
+<ol>
+ 	<li>Identify the last play of each game, which serves two goals:
+<ul>
+ 	<li>The home/away team scores at the last play of the game tell us the winner!</li>
+ 	<li>We need to remove the last play of the game from our subsequent analysis, since the "Win Percent" for some team is always 100% when the game is over (excluding ties).</li>
+</ul>
+</li>
+ 	<li>Filter out remaining play-by-play records where no team has a 99% or higher win percentage.</li>
+</ol>
+
+<h5>Identifying the last play of each game</h5>
+After scraping play-by-play data for all NFL games from 2016-2020, we have a dataset of 231,575 individual plays. Each <code>playId</code> value is stored as the 9-digit <code>gameId</code> followed by 2-3 additional, always increasing, digits. Therefore, we can identify the last play of every game as the largest (maximum) <code>playId</code> value for any game.  <br/><br/>
+
+<code>
+&#35; df_pbp is a dataframe of all play by play data
+<br/>&#35; df_pbp.columns -> (playId, gameId, homeWinPercentage, play.homeScore, play.awayScore)
+<br/> df_last_play_each_game = df_pbp.groupby('gameId')['playId'].max()
+</code>
+ 
+<br/><br/>
+Once we've identified the last play of each game, let's capture the final score in another dataframe. Do this by making a copy of the df_pbp dataframe for rows where the <code>playId</code> is found in the "last play" dataframe.
+ 
+ <br/><br/>
+
+<code>
+ df_game_results = df_pbp[df_pbp['playId'].
+    isin(df_last_play_each_game)][['playId', 'gameId', 'play.homeScore',
+                                   'play.awayScore']]
+</code>
+
+<br/><br/>
+And just to be clear, let's rename the "home" and "away" team scores to indicate that they are final:
+ 
+<br/><br/>
+<code>
+&#35; Rename scores to indicate "Final"<br/>
+df_game_results.rename(columns={'play.homeScore': 'homeFinal',<br/>
+                                'play.awayScore': 'awayFinal'},<br/>
+                       inplace=True)
+</code>
+
+<br/><br/>
+ 
+ 
+<h5>Keep plays where one team has a 99%+ win probability</h5>
+We want to examine all plays where one team has at least a 99% chance of winning. But the last play of every game shows the winning team with a 100% win probability - we need to now discard these entries from our play-by-play dataset. We'll use a new dataframe, df, as our cleaned up, go-forward play by play dataset.
+ 
+<br/><br/>
+<code>
+ 
+ df = df_pbp.loc[~df_pbp['playId'].isin(df_game_results['playId'])]
+</code>
+
+<br/><br/>
+Now we want to focus only on plays/games where one team has at least a 99% win probability at any point before the game is over.
+<br/>
+We'll make a calculated column "victory proximity" that measures how close ANY team is to winning the game...
+ 
+<br/><br/>
+<code>
+ df['victory_proximity'] = 
+ <br/>np.maximum(df['homeWinPercentage'], 1-df['homeWinPercentage'])
+</code>
+
+<br/><br/>
+And then we'll throw out any records where this value is under 99%. We'll use a new "df_99" dataframe for this pared-down dataset.
+
+<br/><br/>
+<code>
+ df_99 = df.loc[df['victory_proximity']>=.99]
+</code>
+
+<br/><br/>
+Now our <code>df_99</code> dataframe has every (non-final) NFL play where one team has at least a 99% chance of winning, and our <code>df_game_results</code> contains the final score of each game. Let's merge these two together to get the in-game win probability per play alongside the actual, final game results in a single dataframe.  
+ 
+<br/><br/>
+<code>
+  df_pbp_full = df_99.merge(df_game_results[['gameId', 'homeFinal', 'awayFinal']],<br/>
+                                           how='left', on='gameId',<br/>
+                      suffixes=[None, None])
+</code>
+  
+<br/><br/>
+ 
+<h3>III. Statistical Methods</h3>
+We now want to statistically validate the accuracy of ESPN's win probability. 
+ 
+<br/><br/>
+If the odds forecasts are perfectly accurate, we should see that teams with a 99% win probability win 99% of the time (and lose 1%). In our dataset, we have a a column <code>homeWinPercentage</code> and <code>HomeVictory</code> that should therefore have identical means under the null hypothesis. Our dataset included every NFL game with an ESPN win probability, so the actual game outcomes represent a true population mean. We therefore will run a one-sided t-test with the following null hypothesis:<br/><br/>
+ 
+ Ho: x^bar = Mu
+ 
+ <br/><br/>
+ To run our test on our data, we execute the following code: <br/><br/>
+ 
+ <code>
+  import scipy.stats as st<br/>
+  actual_home_win_pct = df_pbp_full['HomeVictory'].mean()<br/>
+  t_stat, p_val = st.ttest_1samp(df_pbp_full['homeWinPercentage'], actual_home_win_pct)<br/>
+  print(f't_stat {t_stat:.2f}, p_val: {p_val:.2f}')<br/>
+  >>> t_stat 0.03, p_val: 0.98<br/><br/>
+ </code>
+ 
+<h3>IV. Results</h3>
+For my analysis, the P-value returned was 0.98, meaning we are nowhere close to rejecting the null hypothesis. In other words, ESPN's win probability ratings appear to be remarkably well calibrated at projecting 99% and higher win probabilities.
+  
+<br/><br/>
+Essentially, our t-test findings show that "Comeback games" (where a team with less that 1% chance of winning at some point during the game eventually comes back to win) occur about as often as we'd expect if the ESPN odds were correctly calibrated.<br/><br/>
+ 
+So let's look a little closer at just these anomalous comeback games. Below is a chart of how many comeback victories we observe for a given "victory proximity" score. 
+ <br/>
+<img src="/assets/img/plot_img.png" alt="Historgram of comeback victories by losing team's win probability">
+ <br/><br/>
+ We would expect this to be a right-tailed distribution, with fewer comeback games associated with a 99.% win probability vs. just a 99% win probability. But the large spike around 99.9% gives me pause - it looks like there are some noisy/erronous data entries around this level. 
+ <br/><br/>
+ 
+ Viewing a heatmap with a split by home or away team victory shows a strong, implausible concentration of away-team victories in games/plays where the home team achieve close to a 99.% win probability, yet there are no similar home team games. 
+<br/>
+<p>
+ <img src="/assets/img/heatmap.png" alt="Heatmap of comeback victories by victory proximity">
+</p>
+ 
+ <br/>
+ This anomalous pattern warrants further investigation into these datapoints. If these clusters of comeback victories near 99.9% turn out to be erroneous, the data should be cleaned and the t-test analysis should be re-run on the cleaner dataset.
+
+ <h3>V. Conclusion</h3>
+ According to our t-test on a first pass on ESPN's data, ESPN's win probability scores seem remakably accurate when predicting a 99% win probability. Yet visualizations of the distribtion of "comeback" victories show a higher concentration surprise victories at 99.9% and 100% level, which raises questions about the existence of errors or miscodings in the data. Given that our investigation already focused on a small subset of all plays, just a few miscodings of win probability to extremes of "0" or "1" would drastically alter our results.
+ 
+ <br/><br/>
+ So despite an inital finding that ESPN's win probability scores are accurate, I personally plan to do a little more investigation into these data issues. If you're watching a game at a bar this weekend, I'd still advise holding onto your wallet before you take a bet at 99:1 odds just because ESPN.com claims a game is wrapped up.

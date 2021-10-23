@@ -191,6 +191,3 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2, random_s
 
 <h3>IV. Conclusion</h3>
  <p>Maybe there's something to be said for those unquantifiable attributes of "Motor", "Heart" and "Grit". While this analysis demonstrated that raw, quantifiable athletic performance at the NFL Combine clearly provides some additional predictive power over random guessing, predicting a player's draft round with 22% accuracy wouldn't outperform a casual fan's "eye test".</p>
- 
- <p>
- 
